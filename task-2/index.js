@@ -1,123 +1,117 @@
 import readline from "readline";
 import chalk from "chalk";
+import OpenAI from "openai";
+import dotenv from "dotenv";
 
-// Create CLI interface for user input/output
+// Load environment variables
+dotenv.config();
+
+// Create Groq client (OpenAI compatible)
+const client = new OpenAI({
+  apiKey: process.env.GROQ_API_KEY,
+  baseURL: "https://api.groq.com/openai/v1",
+});
+
+// CLI interface
 const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout,
 });
 
-// Track player's score
+// Track score
 let score = 0;
 
-// Store selected topic and difficulty
+// Selected options
 let topic = "";
 let difficulty = "easy";
 
-// Helper function to ask questions in CLI using Promises
+// Helper to ask CLI questions
 function ask(text) {
   return new Promise((resolve) => rl.question(text, resolve));
 }
 
-// Generate quiz questions (fake data for testing)
-// This can later be replaced with an AI API call
-function generateQuestions() {
-  return [
-    {
-      question: `(${difficulty}) What is the capital of Netherlands?`,
-      answers: ["Rotterdam", "Amsterdam", "Utrecht", "Eindhoven"],
-      correct: 2,
-    },
-    {
-      question: `(${difficulty}) 2 + 2 = ?`,
-      answers: ["3", "4", "5", "6"],
-      correct: 2,
-    },
-    {
-      question: `(${difficulty}) Largest planet?`,
-      answers: ["Earth", "Mars", "Jupiter", "Venus"],
-      correct: 3,
-    },
-    {
-      question: `(${difficulty}) HTML stands for?`,
-      answers: [
-        "Hyper Trainer Marking Language",
-        "Hyper Text Markup Language",
-        "Hyper Text Marketing Language",
-        "Hyper Tool Markup Language",
-      ],
-      correct: 2,
-    },
-    {
-      question: `(${difficulty}) CSS used for?`,
-      answers: ["Logic", "Structure", "Styling", "Database"],
-      correct: 3,
-    },
-    {
-      question: `(${difficulty}) Node.js runs on?`,
-      answers: ["Browser", "Server", "Database", "OS"],
-      correct: 2,
-    },
-    {
-      question: `(${difficulty}) Git command to clone?`,
-      answers: ["git push", "git clone", "git pull", "git add"],
-      correct: 2,
-    },
-    {
-      question: `(${difficulty}) JS framework?`,
-      answers: ["React", "Laravel", "Django", "Flask"],
-      correct: 1,
-    },
-    {
-      question: `(${difficulty}) Water freezes at?`,
-      answers: ["0°C", "10°C", "50°C", "100°C"],
-      correct: 1,
-    },
-    {
-      question: `(${difficulty}) Color of sky?`,
-      answers: ["Green", "Blue", "Red", "Yellow"],
-      correct: 2,
-    },
-  ];
+// Generate quiz questions using LLM
+async function generateQuestions() {
+  console.log(chalk.yellow("🤖 Generating questions with AI...\n"));
+
+  const randomSeed = Math.floor(Math.random() * 100000);
+
+  const response = await client.chat.completions.create({
+    model: "llama-3.1-8b-instant",
+    temperature: 0.9,
+    messages: [
+      {
+        role: "user",
+        content: `Generate 10 ${difficulty} quiz questions about ${topic}.
+Avoid repeating common quiz questions.
+Use randomness seed: ${randomSeed}
+
+Return ONLY JSON array.
+No explanation.
+No markdown.
+
+Format:
+[
+  {
+    "question": "text",
+    "answers": ["a","b","c","d"],
+    "correct": 1
+  }
+]`,
+      },
+    ],
+  });
+
+  let text = response.choices[0].message.content;
+
+  try {
+    // remove markdown code blocks if exist
+    text = text.replace(/```json/g, "").replace(/```/g, "");
+
+    // extract JSON array
+    const start = text.indexOf("[");
+    const end = text.lastIndexOf("]") + 1;
+    text = text.substring(start, end);
+
+    return JSON.parse(text);
+  } catch (error) {
+    console.log(chalk.red("❌ Failed to parse AI response"));
+    console.log(text);
+    process.exit(1);
+  }
 }
 
-// Ask a single question
+// Ask one question
 async function askQuestion(q, index) {
-  // All available answer indexes
   let available = [0, 1, 2, 3];
-
-  // Track if hint already used
   let hintUsed = false;
 
   while (true) {
     console.log(chalk.blue(`\nQuestion ${index + 1}: ${q.question}`));
 
-    // Show only available answers
     available.forEach((i) => {
       console.log(`${i + 1}. ${q.answers[i]}`);
     });
 
     const answer = await ask("Your answer (1-4, h for hint, q to quit): ");
 
-    // Quit game
+    // Quit
     if (answer === "q") {
-      console.log(chalk.yellow("👋 Exiting quiz..."));
       rl.close();
-      process.exit(0);
+      return;
     }
 
-    // Handle hint request
+    // Hint
     if (answer === "h" && !hintUsed) {
       hintUsed = true;
 
-      // Keep correct answer + one random wrong answer
       const wrong = available.filter((i) => i !== q.correct - 1);
       available = [
         q.correct - 1,
         wrong[Math.floor(Math.random() * wrong.length)],
       ];
 
-      console.log(chalk.yellow("💡 Hint used! Two options removed."));
+      console.log(chalk.yellow("💡 Hint used!"));
       continue;
     }
 
@@ -137,7 +131,7 @@ async function askQuestion(q, index) {
   }
 }
 
-// Ask user to choose quiz topic
+// Choose topic
 async function chooseTopic() {
   console.log("Choose topic:");
   console.log("1. General Knowledge");
@@ -148,7 +142,7 @@ async function chooseTopic() {
 
   if (answer === "q") {
     rl.close();
-    process.exit(0);
+    return;
   }
 
   if (answer === "1") topic = "General Knowledge";
@@ -156,7 +150,7 @@ async function chooseTopic() {
   else topic = "Geography";
 }
 
-// Ask user to choose difficulty
+// Choose difficulty
 async function chooseDifficulty() {
   console.log("\nChoose difficulty:");
   console.log("1. Easy");
@@ -167,7 +161,7 @@ async function chooseDifficulty() {
 
   if (answer === "q") {
     rl.close();
-    process.exit(0);
+    return;
   }
 
   if (answer === "1") difficulty = "easy";
@@ -179,7 +173,6 @@ async function chooseDifficulty() {
 async function startQuiz() {
   console.log(chalk.yellow("🎮 AI Quiz Game"));
 
-  // Choose topic and difficulty
   await chooseTopic();
   await chooseDifficulty();
 
@@ -187,25 +180,19 @@ async function startQuiz() {
     chalk.cyan(`\nStarting quiz: ${topic} | Difficulty: ${difficulty}`),
   );
 
-  // Generate questions
-  const questions = generateQuestions();
+  const questions = await generateQuestions();
 
-  // Loop through questions
   for (let i = 0; i < questions.length; i++) {
     await askQuestion(questions[i], i);
   }
 
-  // Show final score
   console.log(chalk.magenta(`\n🎉 Final Score: ${score}/10`));
-
-  // Close CLI
   rl.close();
 }
 
-// Start the game
 startQuiz();
 
-// Close CLI
+// Close CLI properly
 rl.on("close", () => {
   process.exit(0);
 });
